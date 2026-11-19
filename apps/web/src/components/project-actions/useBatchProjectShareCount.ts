@@ -7,6 +7,7 @@ import {
 } from '../../collab/workspace-identity';
 import { AMR_LOGIN_STATUS_EVENT } from '../amrLoginPolling';
 import { isProjectShareHistory } from '../share/useProjectShareHistory';
+import { usePublicSharingCapability } from './publicSharingCapability';
 
 type BatchRead = { scope: string; count: number | null; failed: boolean };
 
@@ -16,6 +17,10 @@ type BatchRead = { scope: string; count: number | null; failed: boolean };
  * read keeps the destructive confirmation locked; closing/reopening retries.
  * Without a workspace identity no count is known (as for single-card delete);
  * the daemon still owns the final stop-before-delete authorization.
+ *
+ * A daemon that cannot publish public links at all can hold none, so there the
+ * missing identity is a real zero instead of an unknown — otherwise every batch
+ * delete on a local/self-hosted install is permanently locked.
  */
 export function useBatchProjectShareCount(
   ids: readonly string[],
@@ -23,6 +28,8 @@ export function useBatchProjectShareCount(
 ) {
   const generation = currentWorkspaceAccountGeneration();
   const scope = JSON.stringify([ids, workspaceAccountScopedCacheKey(context)]);
+  const publicSharing = usePublicSharingCapability(ids.length > 0 && !context);
+  const sharingImpossible = !context && publicSharing === false;
   const [result, setResult] = useState<BatchRead | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -66,9 +73,9 @@ export function useBatchProjectShareCount(
   const needsRead = ids.length > 0;
   const current = result?.scope === scope ? result : null;
   return {
-    count: current?.count ?? null,
+    count: sharingImpossible ? 0 : current?.count ?? null,
     pending: needsRead && !!context && !current,
-    failed: needsRead && (!context || current?.failed === true),
-    generation: current?.count !== null && current?.count !== undefined ? generation : null,
+    failed: needsRead && (current?.failed === true || (!context && !sharingImpossible)),
+    generation: !sharingImpossible && current?.count !== null && current?.count !== undefined ? generation : null,
   };
 }

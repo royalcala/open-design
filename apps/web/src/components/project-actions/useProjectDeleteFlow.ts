@@ -11,6 +11,7 @@ import {
 import type { Project } from '../../types';
 import { useProjectShareHistoryState } from '../share/useProjectShareHistory';
 import { currentWorkspaceAccountGeneration } from '../../collab/workspace-identity';
+import { usePublicSharingCapability } from './publicSharingCapability';
 
 /** Return `false` (or reject) when the daemon refused or the request failed;
  *  anything else means the project is gone. */
@@ -40,8 +41,21 @@ export function useProjectDeleteFlow(input: {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const accountGeneration = currentWorkspaceAccountGeneration();
   const { history, status } = useProjectShareHistoryState(target && workspaceContext ? target.id : undefined, workspaceContext, 'delete-confirmation');
-  const shareReadStatus = target && !workspaceContext ? 'error' : status;
-  const activeShareCount = history ? history.publications.filter(publication => publication.status === 'active').length : null;
+  const publicSharing = usePublicSharingCapability(Boolean(target) && !workspaceContext);
+  // A daemon that cannot publish public links cannot hold one either, so a
+  // missing Workspace identity there is a real zero, not an unreadable state.
+  // Everywhere else this stays fail-closed: an absent context means the count
+  // is genuinely unknown.
+  const sharingImpossible = !workspaceContext && publicSharing === false;
+  const shareReadStatus = target && !workspaceContext
+    // No Workspace identity: either the daemon cannot publish (a real zero) or
+    // we have not heard back yet (still loading), otherwise the count is
+    // genuinely unreadable and deletion stays blocked.
+    ? (sharingImpossible ? 'ready' : publicSharing === null ? 'loading' : 'error')
+    : status;
+  const activeShareCount = history
+    ? history.publications.filter(publication => publication.status === 'active').length
+    : sharingImpossible ? 0 : null;
 
   const request = useCallback((project: Project) => {
     setFailed(false);

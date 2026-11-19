@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildWorkspacePermissions, buildWorkspaceSeatSummary, type WorkspaceCollabContext } from '@open-design/contracts';
 import { DesignsTab } from '../../src/components/DesignsTab';
+import { resetPublicSharingCapabilityCache } from '../../src/components/project-actions/publicSharingCapability';
 import type { Project } from '../../src/types';
 
 const context: WorkspaceCollabContext = {
@@ -29,6 +30,7 @@ beforeEach(() => {
   workspaceContext = context;
   remove.mockClear();
   request.mockReset();
+  resetPublicSharingCapabilityCache();
   window.localStorage.clear();
   vi.stubGlobal('fetch', request);
   request.mockImplementation(async (url) => String(url).includes('/share-state')
@@ -125,5 +127,42 @@ it('never treats one failed project share-state read as zero links or deletes a 
   fireEvent.click(accept);
   expect(remove).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(remove).not.toHaveBeenCalled();
+});
+
+it('deletes on a daemon that cannot publish public links even without a workspace identity', async () => {
+  // Local / self-hosted: no Workspace authority, so no share can exist and the
+  // unreadable share state is a real zero rather than an unknown one.
+  workspaceContext = null;
+  request.mockImplementation(async (url) => String(url).endsWith('/api/version')
+    ? Response.json({ version: { version: '0.0.0-test', channel: 'test', packaged: false, platform: 'linux', arch: 'x64',
+      capabilities: { slideRenderer: false, publicSharing: false } } })
+    : new Response('', { status: 200 }));
+  render(<DesignsTab projects={[project]} skills={[]} designSystems={[]} onOpen={vi.fn()} onOpenLiveArtifact={vi.fn()} onDelete={remove} />);
+  fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+  const dialog = screen.getByRole('alertdialog');
+  const accept = within(dialog).getByRole('button', { name: 'Delete' });
+  await waitFor(() => expect(accept).not.toBeDisabled());
+  expect(within(dialog).queryByRole('alert')).toBeNull();
+  fireEvent.click(accept);
+  await waitFor(() => expect(remove).toHaveBeenCalledExactlyOnceWith(project.id));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+});
+
+it('still refuses on a hosted daemon whose share state cannot be read without a workspace identity', async () => {
+  workspaceContext = null;
+  request.mockImplementation(async (url) => String(url).endsWith('/api/version')
+    ? Response.json({ version: { version: '0.0.0-test', channel: 'test', packaged: false, platform: 'linux', arch: 'x64',
+      capabilities: { slideRenderer: false, publicSharing: true } } })
+    : new Response('', { status: 200 }));
+  render(<DesignsTab projects={[project]} skills={[]} designSystems={[]} onOpen={vi.fn()} onOpenLiveArtifact={vi.fn()} onDelete={remove} />);
+  fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+  const dialog = screen.getByRole('alertdialog');
+  await waitFor(() => expect(within(dialog).getByRole('alert')).toBeVisible());
+  const accept = within(dialog).getByRole('button', { name: 'Delete' });
+  expect(accept).toBeDisabled();
+  fireEvent.click(accept);
   expect(remove).not.toHaveBeenCalled();
 });

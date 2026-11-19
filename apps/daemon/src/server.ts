@@ -8827,7 +8827,14 @@ export async function startServer({
     res.json({
       version: {
         ...version,
-        capabilities: { slideRenderer: typeof desktopSlideRenderer === 'function' },
+        capabilities: {
+          slideRenderer: typeof desktopSlideRenderer === 'function',
+          // Public file links are published through the Workspace authority
+          // (Vela). Without that provider this daemon cannot create OR hold a
+          // share, so surfaces that gate on "share state unreadable" can stop
+          // failing closed for a state that can never exist here.
+          publicSharing: process.env.OD_WORKSPACE_CONTEXT_SOURCE?.trim() === 'vela',
+        },
       },
     });
   });

@@ -18,6 +18,20 @@ export interface AppRuntimeCapabilities {
    * plain daemon still has no renderer.
    */
   slideRenderer: boolean;
+  /**
+   * Whether this daemon can publish public file links at all. Publishing
+   * requires a Workspace identity from the Workspace authority, so a daemon
+   * that is not wired to it (local / self-hosted, `OD_WORKSPACE_CONTEXT_SOURCE`
+   * not `vela`) can never hold a public share.
+   *
+   * Surfaces that refuse an action because a share state could not be read use
+   * this to distinguish "unreadable, so assume the worst" from "impossible, so
+   * there is nothing to lose".
+   *
+   * Optional: an older daemon omits it, and an absent value must be treated as
+   * unknown (keep the fail-closed behavior), never as `false`.
+   */
+  publicSharing?: boolean;
 }
 
 export interface AppVersionInfo {
